@@ -30,13 +30,12 @@
 #include <thread>
 #include <map>
 
-#include <unistd.h>
 
-// fix SOCK_NONBLOCK for OSX
-#ifndef SOCK_NONBLOCK
-#include <fcntl.h>
-#define SOCK_NONBLOCK O_NONBLOCK
-#endif
+// // fix SOCK_NONBLOCK for OSX
+// #ifndef SOCK_NONBLOCK
+// #include <fcntl.h>
+// #define SOCK_NONBLOCK O_NONBLOCK
+// #endif
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
 
@@ -88,19 +87,19 @@ int open_socket(int portno)
 
    // Create socket for connection. Set to be non-blocking, so recv will
    // return immediately if there isn't anything waiting to be read.
-#ifdef __APPLE__     
-   if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-   {
-      perror("Failed to open socket");
-      return(-1);
-   }
-#else
+// #ifdef __APPLE__     
+//    if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+//    {
+//       perror("Failed to open socket");
+//       return(-1);
+//    }
+// #else
    if((sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
    {
      perror("Failed to open socket");
     return(-1);
    }
-#endif
+// #endif
 
    // Turn on SO_REUSEADDR to allow socket to be quickly reused after 
    // program exit.
@@ -110,12 +109,12 @@ int open_socket(int portno)
       perror("Failed to set SO_REUSEADDR:");
    }
    set = 1;
-#ifdef __APPLE__     
-   if(setsockopt(sock, SOL_SOCKET, SOCK_NONBLOCK, &set, sizeof(set)) < 0)
-   {
-     perror("Failed to set SOCK_NOBBLOCK");
-   }
-#endif
+// #ifdef __APPLE__     
+//    if(setsockopt(sock, SOL_SOCKET, SOCK_NONBLOCK, &set, sizeof(set)) < 0)
+//    {
+//      perror("Failed to set SOCK_NOBBLOCK");
+//    }
+// #endif
    memset(&sk_addr, 0, sizeof(sk_addr));
 
    sk_addr.sin_family      = AF_INET;
@@ -201,68 +200,6 @@ void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
   while(stream >> token)
       tokens.push_back(token);
 
-  if((tokens[0].compare("CONNECT") == 0) && (tokens.size() == 2))
-  {
-     clients[clientSocket]->name = tokens[1];
-  }
-  else if(tokens[0].compare("LEAVE") == 0)
-  {
-      // Close the socket, and leave the socket handling
-      // code to deal with tidying up clients etc. when
-      // poll() detects the OS has torn down the connection.
- 
-      closeClient(clientSocket, fds);
-  }
-  else if(tokens[0].compare("WHO") == 0)
-  {
-     std::cout << "Who is logged on" << std::endl;
-     std::string msg;
-
-     for(auto const& names : clients)
-     {
-        msg += names.second->name + ",";
-
-     }
-     // Reducing the msg length by 1 loses the excess "," - which
-     // granted is totally cheating.
-     send(clientSocket, msg.c_str(), msg.length()-1, 0);
-
-  }
-  // This is slightly fragile, since it's relying on the order
-  // of evaluation of the if statement.
-  else if((tokens[0].compare("MSG") == 0) && (tokens[1].compare("ALL") == 0))
-  {
-      std::string msg;
-      for(auto i = tokens.begin()+2;i != tokens.end();i++) 
-      {
-          msg += *i + " ";
-      }
-
-      for(auto const& pair : clients)
-      {
-          sendMessage(pair.second->sock, msg);
-      }
-  }
-  else if(tokens[0].compare("MSG") == 0)
-  {
-      for(auto const& pair : clients)
-      {
-          if(pair.second->name.compare(tokens[1]) == 0)
-          {
-              std::string msg;
-              for(auto i = tokens.begin()+2;i != tokens.end();i++) 
-              {
-                  msg += *i + " ";
-              }
-              sendMessage(pair.second->sock, msg);
-          }
-      }
-  }
-  else
-  {
-      std::cout << "Unknown command from client:" << buffer << std::endl;
-  }
-     
 }
 
 int main(int argc, char* argv[])
@@ -329,7 +266,7 @@ int main(int argc, char* argv[])
             {
                clientSock = accept(listenSock, (struct sockaddr *)&client,
                                    &clientLen);
-               printf("accept***\n");
+            //    printf("accept***\n");
                // Add new client to the list of fds being polled
                fds.push_back({clientSock, POLLIN, 0});
 
@@ -337,10 +274,10 @@ int main(int argc, char* argv[])
                // Re-use the record for this socket if we have seen it
                // before, so we don't leak a Client every time someone
                // disconnects and reconnects.
-               if(clients.find(clientSock) == clients.end())
-               {
-                  clients[clientSock] = new Client(clientSock);
-               }
+            //    if(clients.find(clientSock) == clients.end())
+            //    {
+            clients[clientSock] = new Client(clientSock);
+            //    }
 
                // Decrement the number of sockets waiting to be dealt with
                n--;
@@ -349,31 +286,28 @@ int main(int argc, char* argv[])
             }
             // Now check for commands from clients
             std::list<Client *> disconnectedClients;  
-            while(n-- > 0)
+            for(size_t i = 1; i < readyFds.size(); i++)
             {
-               for(size_t i = 1; i < readyFds.size(); i++)
-               {
-                  if(readyFds[i].revents & POLLIN)
-                  {
-                      int sock = readyFds[i].fd;
-                      Client *client = clients[sock];
+                if(readyFds[i].revents & POLLIN)
+                {
+                    int sock = readyFds[i].fd;
+                    Client *client = clients[sock];
 
-                      // recv() == 0 means client has closed connection
-                      if(recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) == 0)
-                      {
-                          disconnectedClients.push_back(client);
-                          closeClient(sock, &fds);
+                    // recv() == 0 means client has closed connection
+                    if(recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) == 0)
+                    {
+                        disconnectedClients.push_back(client);
+                        closeClient(sock, &fds);
 
-                      }
-                      // We don't check for -1 (nothing received) because poll()
-                      // only triggers if there is something on the socket for us.
-                      else
-                      {
-                          std::cout << buffer << std::endl;
-                          clientCommand(sock, &fds, buffer);
-                      }
-                  }
-               }
+                    }
+                    // We don't check for -1 (nothing received) because poll()
+                    // only triggers if there is something on the socket for us.
+                    else
+                    {
+                        // std::cout << buffer << std::endl;
+                        clientCommand(sock, &fds, buffer);
+                    }
+                }
                // Remove client from the clients list
                for(auto const& c : disconnectedClients)
                   clients.erase(c->sock);

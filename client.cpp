@@ -26,7 +26,7 @@
 
 #include <iostream>
 #include <sstream>
-#include <map>
+
 
 //TODO: the client must connect to your server on a given IP and TCP port
 //TODO: the executable of your client must be called tsamclient,
@@ -57,10 +57,12 @@ int main(int argc, char* argv[])
         exit(0);
    }
 
-   hints.ai_family   = AF_INET;            // IPv4 only addresses
-   hints.ai_socktype = SOCK_STREAM;
+    memset(&hints,   0, sizeof(hints));
 
-   memset(&hints,   0, sizeof(hints));
+    hints.ai_family   = AF_INET;            // IPv4 only addresses
+    hints.ai_socktype = SOCK_STREAM;
+
+
 
    if(getaddrinfo(argv[1], argv[2], &hints, &svr) != 0)
    {
@@ -68,14 +70,7 @@ int main(int argc, char* argv[])
        exit(0);
    }
 
-   struct hostent *server;
-   server = gethostbyname(argv[1]);
-
-   bzero((char *) &serv_addr, sizeof(serv_addr));
-   serv_addr.sin_family = AF_INET;
-   bcopy((char *)server->h_addr,
-      (char *)&serv_addr.sin_addr.s_addr,
-      server->h_length);
+   
    serv_addr.sin_port = htons(atoi(argv[2]));
 
    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -83,19 +78,11 @@ int main(int argc, char* argv[])
    // Turn on SO_REUSEADDR to allow socket to be quickly reused after 
    // program exit.
 
-   if(setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
-   {
-       printf("Failed to set SO_REUSEADDR for port %s\n", argv[2]);
-       perror("setsockopt failed: ");
-   }
-
-   
-   if(connect(serverSocket, (struct sockaddr *)&serv_addr, sizeof(serv_addr) )< 0)
-   {
        // EINPROGRESS means that the connection is still being setup. Typically this
        // only occurs with non-blocking sockets. (The serverSocket above is explicitly
        // not in non-blocking mode, so this check here is just an example of how to
        // handle this properly.)
+    // TODO: laga, its blocking
        if(errno != EINPROGRESS)
        {
          printf("Failed to open socket to server: %s\n", argv[1]);
@@ -154,7 +141,6 @@ int main(int argc, char* argv[])
           {
              printf("%s\n", buffer);
           }
-          printf("here\n");
        }
    }
 }
