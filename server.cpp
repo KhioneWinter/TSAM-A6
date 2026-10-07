@@ -40,6 +40,26 @@
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
 
+//TODO: The server must listen on one TCP port so clients can connect to it
+//TODO: The server must be able to maintain connections to multiple clients simultaniously,
+            // it also has to react to commands from all of the clients without unreasonable delay
+//TODO: The server must be able to handle a sequence of multiple requests per connection
+//TODO: the server must operate auonomously!!
+            // the server must not accept nor wait for any imput on the terminal.
+            // All connection with the server must happen through TCP sockets
+//TODO: you may run the server on TSAM server or on some other computer. 
+            // Note that in a later assignment you must run the server such that other groups can connect to it
+//TODO: The executable of your server must be called "tsamserver", the server port you are listening on must be the fist command line argument
+            // Example: ./tsamserver 4044
+            // other command line arguments must be optional
+//TODO: the server must keep a timestamp log of all commands sent and received, 
+            // this log may constain other information about the server state to facilitate debugging
+//TODO: Do not hard code any IP adredded or port numbers, use additional command line arguments,
+            // a config file or commands sent from you client if you need additional input
+
+
+
+
 // Simple class for handling connections from clients.
 //
 // Client(int socket) - socket to send/receive traffic from client.

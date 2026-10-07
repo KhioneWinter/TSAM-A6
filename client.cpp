@@ -28,6 +28,17 @@
 #include <sstream>
 #include <map>
 
+//TODO: the client must connect to your server on a given IP and TCP port
+//TODO: the executable of your client must be called tsamclient,
+            // it must accept two compand line arguments: IP address and port of the server
+            // For example: ./tsamcllient 127.0.0.1 4044
+            // any additional command line argument must be optional
+// TODO: the client must accept user input from stdin and as result send commands to the server
+// TODO: the client must recieve responces send by the server and display them for the user
+//TODO: the client must print out all commands sent and responses reseived with a human-readable timestamp (date and time)
+
+
+
 int main(int argc, char* argv[])
 {
    struct addrinfo hints, *svr;              // Network host entry for server
