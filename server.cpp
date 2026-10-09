@@ -180,6 +180,15 @@ bool sendMessage(int sock, const std::string &msg)
    {
       int n = send(sock, p, remaining, MSG_DONTWAIT);
 
+      if(n < 0)
+      {
+         if(errno == EAGAIN || errno == EWOULDBLOCK)
+         {
+            continue;   // send buffer full, try again
+         }
+         return false;  // real error, client is gone
+      }
+
       if(n == 0)        // client is gone
       {
          return false;
@@ -206,6 +215,16 @@ void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
   while(stream >> token)
       tokens.push_back(token);
 
+  if(tokens.empty())
+      return;
+
+  printf("Command from client %d: %s\n", clientSocket, buffer);
+
+  // For now just acknowledge every command so the client sees a reply
+  if(!sendMessage(clientSocket, "Received: " + tokens[0] + "\n"))
+  {
+      closeClient(clientSocket, fds);
+  }
 }
 
 int main(int argc, char* argv[])
@@ -223,26 +242,34 @@ int main(int argc, char* argv[])
     socklen_t clientLen;
     char buffer[1025];              // buffer for reading from clients
 
-    if(argc != 2)
+    // Port is required, any further arguments are optional
+    if(argc < 2)
     {
-        printf("Usage: chat_server <ip port>\n");
+        printf("Usage: tsamserver <port>\n");
         exit(0);
     }
 
     // Setup socket for server to listen to
 
-    listenSock = open_socket(atoi(argv[1]));
-    printf("Listening on port: %d\n", atoi(argv[1]));
+    int port = atoi(argv[1]);
+    listenSock = open_socket(port);
+
+    if(listenSock < 0)
+    {
+        printf("Could not open socket on port %d\n", port);
+        exit(1);
+    }
 
     if(listen(listenSock, BACKLOG) < 0)
     {
-        printf("Listen failed on port %s\n", argv[1]);
-        exit(0);
+        printf("Listen failed on port %d\n", port);
+        exit(1);
     }
     else
     // Add listen socket to the list of fds being polled.
     {
         fds.push_back({listenSock, POLLIN, 0});
+        printf("Listening on port: %d\n", port);
     }
 
     finished = false;
@@ -270,25 +297,24 @@ int main(int argc, char* argv[])
             // First, accept any new connections to the server on the listening socket
             if(readyFds[0].revents & POLLIN)
             {
+               clientLen = sizeof(client);
                clientSock = accept(listenSock, (struct sockaddr *)&client,
                                    &clientLen);
-            //    printf("accept***\n");
-               // Add new client to the list of fds being polled
-               fds.push_back({clientSock, POLLIN, 0});
 
-               // create a new client to store information.
-               // Re-use the record for this socket if we have seen it
-               // before, so we don't leak a Client every time someone
-               // disconnects and reconnects.
-            //    if(clients.find(clientSock) == clients.end())
-            //    {
-            clients[clientSock] = new Client(clientSock);
-            //    }
+               if(clientSock < 0)
+               {
+                   perror("accept failed");
+               }
+               else
+               {
+                   // Add new client to the list of fds being polled
+                   fds.push_back({clientSock, POLLIN, 0});
 
-               // Decrement the number of sockets waiting to be dealt with
-               n--;
+                   // create a new client to store information.
+                   clients[clientSock] = new Client(clientSock);
 
-               printf("Client connected on server: %d\n", clientSock);
+                   printf("Client connected on server: %d\n", clientSock);
+               }
             }
             // Now check for commands from clients
             for(size_t i = 1; i < readyFds.size(); i++)
