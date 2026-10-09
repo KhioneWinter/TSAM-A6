@@ -26,9 +26,11 @@
 #include <poll.h>
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <thread>
 #include <map>
+#include <ctime>
 
 
 // // fix SOCK_NONBLOCK for OSX
@@ -38,6 +40,63 @@
 // #endif
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
+
+// Framing: <SOH><length><STX><command><ETX>, length is 16 bits in network
+// byte order and counts the whole frame including the 5 framing bytes.
+#define SOH        0x01
+#define STX        0x02
+#define ETX        0x03
+#define FRAME_OVERHEAD 5
+#define MAX_FRAME  5000      // Longer frames are discarded
+
+std::ofstream logFile;      // Timestamped log of everything the server does
+
+// Current local time as "YYYY-MM-DD HH:MM:SS".
+std::string timestamp()
+{
+    char buf[32];
+    time_t now = time(NULL);
+    struct tm tmNow;
+
+    localtime_r(&now, &tmNow);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmNow);
+
+    return buf;
+}
+
+// Make arbitrary bytes safe to print: non-printable bytes are shown as \xNN.
+std::string printable(const std::string &s)
+{
+    std::string out;
+    char hex[8];
+
+    for(unsigned char c : s)
+    {
+        if(c >= 0x20 && c < 0x7f)
+        {
+            out += c;
+        }
+        else
+        {
+            snprintf(hex, sizeof(hex), "\\x%02x", c);
+            out += hex;
+        }
+    }
+    return out;
+}
+
+// Write one timestamped line to server.log and to stdout.
+void logMsg(const std::string &msg)
+{
+    std::string line = "[" + timestamp() + "] " + msg;
+
+    std::cout << line << std::endl;
+
+    if(logFile.is_open())
+    {
+        logFile << line << std::endl;   // endl flushes, so the log survives a crash
+    }
+}
 
 //TODO: The server must listen on one TCP port so clients can connect to it
 //TODO: The server must be able to maintain connections to multiple clients simultaniously,
@@ -67,6 +126,7 @@ class Client
   public:
     int sock;              // socket of client connection
     std::string name;           // Limit length of name of client's user
+    std::string inbuf;     // Bytes received but not yet part of a whole frame
 
     Client(int socket) : sock(socket){}
 
@@ -140,7 +200,7 @@ int open_socket(int portno)
 
 void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
 {
-     printf("Client closed connection: %d\n", clientSocket);
+     logMsg("Client " + std::to_string(clientSocket) + " disconnected");
 
      close(clientSocket);
 
@@ -166,19 +226,97 @@ void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
      }
 }
 
-// Send a message to a client. send() may not be able to accept the whole
-// message at once, so keep going until everything has been written.
+// Wrap a command in <SOH><length><STX>...<ETX>.
+std::string frame(const std::string &command)
+{
+   uint16_t len = htons(command.length() + FRAME_OVERHEAD);
+   std::string out;
+
+   out += (char)SOH;
+   out.append((const char *)&len, 2);
+   out += (char)STX;
+   out += command;
+   out += (char)ETX;
+
+   return out;
+}
+
+// Pull the next complete frame out of buf and put its command in command.
+// Garbage before a frame and malformed or too long frames are logged and
+// thrown away. Returns false when buf holds no complete frame (yet).
+bool extractFrame(int sock, std::string &buf, std::string &command)
+{
+   while(!buf.empty())
+   {
+      // Skip anything before the start of a frame
+      size_t start = buf.find((char)SOH);
+
+      if(start == std::string::npos)
+      {
+         logMsg("Discarded " + std::to_string(buf.size()) + " bytes of garbage from client "
+                + std::to_string(sock) + ": " + printable(buf));
+         buf.clear();
+         return false;
+      }
+      if(start > 0)
+      {
+         logMsg("Discarded " + std::to_string(start) + " bytes of garbage from client "
+                + std::to_string(sock) + ": " + printable(buf.substr(0, start)));
+         buf.erase(0, start);
+      }
+
+      if(buf.size() < 3)
+      {
+         return false;          // length field not here yet
+      }
+
+      size_t len = ((unsigned char)buf[1] << 8) | (unsigned char)buf[2];
+
+      if(len < FRAME_OVERHEAD || len > MAX_FRAME)
+      {
+         logMsg("Invalid frame length " + std::to_string(len) + " from client "
+                + std::to_string(sock) + ", discarding");
+         buf.erase(0, 1);       // drop this SOH and look for the next one
+         continue;
+      }
+
+      if(buf.size() < len)
+      {
+         return false;          // rest of the frame not here yet
+      }
+
+      if(buf[3] != STX || buf[len - 1] != ETX)
+      {
+         logMsg("Malformed frame from client " + std::to_string(sock)
+                + ", discarding: " + printable(buf.substr(0, len)));
+         buf.erase(0, 1);
+         continue;
+      }
+
+      command = buf.substr(4, len - FRAME_OVERHEAD);
+      buf.erase(0, len);
+      return true;
+   }
+   return false;
+}
+
+// Send a framed message to a client. send() may not be able to accept the
+// whole message at once, so keep going until everything has been written.
 //
 // Returns false if the client has gone away.
 
-bool sendMessage(int sock, const std::string &msg)
+bool sendMessage(int sock, const std::string &command)
 {
+   std::string msg  = frame(command);
    const char *p    = msg.c_str();
    size_t remaining = msg.length();
 
+   logMsg("Sent to client " + std::to_string(sock) + ": " + printable(command));
+
    while(remaining > 0)
    {
-      int n = send(sock, p, remaining, MSG_DONTWAIT);
+      // MSG_NOSIGNAL: a client that has gone away must not kill the server
+      int n = send(sock, p, remaining, MSG_DONTWAIT | MSG_NOSIGNAL);
 
       if(n < 0)
       {
@@ -204,24 +342,24 @@ bool sendMessage(int sock, const std::string &msg)
 // Process command from client on the server
 
 void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
-                  char *buffer)
+                  const std::string &command)
 {
   std::vector<std::string> tokens;
   std::string token;
 
-  // Split command from client into tokens for parsing
-  std::stringstream stream(buffer);
+  logMsg("Received from client " + std::to_string(clientSocket) + ": " + printable(command));
 
-  while(stream >> token)
+  // Split command from client into comma separated tokens for parsing
+  std::stringstream stream(command);
+
+  while(std::getline(stream, token, ','))
       tokens.push_back(token);
 
   if(tokens.empty())
       return;
 
-  printf("Command from client %d: %s\n", clientSocket, buffer);
-
   // For now just acknowledge every command so the client sees a reply
-  if(!sendMessage(clientSocket, "Received: " + tokens[0] + "\n"))
+  if(!sendMessage(clientSocket, "Received: " + tokens[0]))
   {
       closeClient(clientSocket, fds);
   }
@@ -240,13 +378,22 @@ int main(int argc, char* argv[])
 
     struct sockaddr_in client;
     socklen_t clientLen;
-    char buffer[1025];              // buffer for reading from clients
+    char buffer[MAX_FRAME];         // buffer for reading from clients
 
     // Port is required, any further arguments are optional
     if(argc < 2)
     {
         printf("Usage: tsamserver <port>\n");
         exit(0);
+    }
+
+    // Open the log file, appending so earlier runs are kept
+
+    logFile.open("server.log", std::ios::app);
+
+    if(!logFile.is_open())
+    {
+        perror("Could not open server.log");
     }
 
     // Setup socket for server to listen to
@@ -269,15 +416,13 @@ int main(int argc, char* argv[])
     // Add listen socket to the list of fds being polled.
     {
         fds.push_back({listenSock, POLLIN, 0});
-        printf("Listening on port: %d\n", port);
+        logMsg("Server listening on port " + std::to_string(port));
     }
 
     finished = false;
 
     while(!finished)
     {
-        memset(buffer, 0, sizeof(buffer));
-
         // Wait (indefinitely) until at least one of our sockets has
         // something to be read() on it.
         int n = poll(fds.data(), fds.size(), -1);
@@ -313,7 +458,9 @@ int main(int argc, char* argv[])
                    // create a new client to store information.
                    clients[clientSock] = new Client(clientSock);
 
-                   printf("Client connected on server: %d\n", clientSock);
+                   logMsg("Client " + std::to_string(clientSock) + " connected from "
+                          + inet_ntoa(client.sin_addr) + ":"
+                          + std::to_string(ntohs(client.sin_port)));
                }
             }
             // Now check for commands from clients
@@ -325,15 +472,25 @@ int main(int argc, char* argv[])
 
                     // recv() == 0 means client has closed connection,
                     // recv() < 0 means the connection broke (e.g. reset).
-                    // Leave room for a terminating '\0' in the buffer.
-                    if(recv(sock, buffer, sizeof(buffer) - 1, MSG_DONTWAIT) <= 0)
+                    int nread = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+
+                    if(nread <= 0)
                     {
                         closeClient(sock, &fds);
                     }
                     else
                     {
-                        // std::cout << buffer << std::endl;
-                        clientCommand(sock, &fds, buffer);
+                        // TCP is a byte stream: add what arrived to this
+                        // client's buffer and handle every complete frame.
+                        std::string &inbuf = clients[sock]->inbuf;
+                        std::string command;
+
+                        inbuf.append(buffer, nread);
+
+                        while(clients.count(sock) && extractFrame(sock, inbuf, command))
+                        {
+                            clientCommand(sock, &fds, command);
+                        }
                     }
                 }
             }
