@@ -1,0 +1,89 @@
+# ==========================================
+# Prerequisites & Dependency Trackers
+# ==========================================
+*.d
+
+# ==========================================
+# Compiled Object Files
+# ==========================================
+*.slo
+*.lo
+*.o
+*.obj
+
+# ==========================================
+# Precompiled Headers
+# ==========================================
+*.gch
+*.pch
+
+# ==========================================
+# Linker and Debugger Files
+# ==========================================
+*.ilk
+*.pdb
+*.dwo
+
+# ==========================================
+# Compiled Libraries (Static & Dynamic)
+# ==========================================
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.la
+*.lai
+
+# ==========================================
+# Executables
+# ==========================================
+*.exe
+*.out
+*.app
+
+# ==========================================
+# Build Directories & Tool Outputs
+# ==========================================
+# General build folder output
+[Bb]uild/
+[Bb]in/
+
+# CMake outputs
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# ==========================================
+# Package Manager Directories
+# ==========================================
+vcpkg_installed/
+.cache/
+
+# ==========================================
+# IDE & System Specific (Optional but Recommended)
+# ==========================================
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+tsamserver
+tsamclient

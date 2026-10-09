@@ -6,13 +6,13 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 
 all: tsamserver tsamclient
 
-tsamserver: server.o protocol.o
+tsamserver: server.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-tsamclient: client.o protocol.o
+tsamclient: client.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-%.o: %.cpp protocol.h
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
