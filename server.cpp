@@ -46,12 +46,12 @@
 //TODO: the server must operate auonomously!!
             // the server must not accept nor wait for any imput on the terminal.
             // All connection with the server must happen through TCP sockets
-//TODO: you may run the server on TSAM server or on some other computer. 
+//TODO: you may run the server on TSAM server or on some other computer.
             // Note that in a later assignment you must run the server such that other groups can connect to it
 //TODO: The executable of your server must be called "tsamserver", the server port you are listening on must be the fist command line argument
             // Example: ./tsamserver 4044
             // other command line arguments must be optional
-//TODO: the server must keep a timestamp log of all commands sent and received, 
+//TODO: the server must keep a timestamp log of all commands sent and received,
             // this log may constain other information about the server state to facilitate debugging
 //TODO: Do not hard code any IP adredded or port numbers, use additional command line arguments,
             // a config file or commands sent from you client if you need additional input
@@ -68,7 +68,7 @@ class Client
     int sock;              // socket of client connection
     std::string name;           // Limit length of name of client's user
 
-    Client(int socket) : sock(socket){} 
+    Client(int socket) : sock(socket){}
 
     ~Client(){}            // Virtual destructor defined for base class
 };
@@ -87,7 +87,7 @@ int open_socket(int portno)
 
    // Create socket for connection. Set to be non-blocking, so recv will
    // return immediately if there isn't anything waiting to be read.
-// #ifdef __APPLE__     
+// #ifdef __APPLE__
 //    if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 //    {
 //       perror("Failed to open socket");
@@ -101,7 +101,7 @@ int open_socket(int portno)
    }
 // #endif
 
-   // Turn on SO_REUSEADDR to allow socket to be quickly reused after 
+   // Turn on SO_REUSEADDR to allow socket to be quickly reused after
    // program exit.
 
    if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
@@ -109,7 +109,7 @@ int open_socket(int portno)
       perror("Failed to set SO_REUSEADDR:");
    }
    set = 1;
-// #ifdef __APPLE__     
+// #ifdef __APPLE__
 //    if(setsockopt(sock, SOL_SOCKET, SOCK_NONBLOCK, &set, sizeof(set)) < 0)
 //    {
 //      perror("Failed to set SOCK_NOBBLOCK");
@@ -134,18 +134,15 @@ int open_socket(int portno)
    }
 }
 
-// Close a client's connection, and remove it from the list of file
-// descriptors being watched by poll().
-//
-// Note: this only removes the socket from the poll() watch list. It does
-// NOT remove the corresponding entry from the "clients" map - callers are
-// responsible for that (see the main loop below).
+// Close a client's connection, remove it from the list of file
+// descriptors being watched by poll(), and free its entry in the
+// "clients" map.
 
 void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
 {
      printf("Client closed connection: %d\n", clientSocket);
 
-     close(clientSocket);      
+     close(clientSocket);
 
      // Find and remove this socket's entry from the list of fds polled.
      auto fdIt = std::find_if(fds->begin(), fds->end(),
@@ -157,6 +154,15 @@ void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
      if(fdIt != fds->end())
      {
          fds->erase(fdIt);
+     }
+
+     // Remove the client's record and free it.
+     auto clientIt = clients.find(clientSocket);
+
+     if(clientIt != clients.end())
+     {
+         delete clientIt->second;
+         clients.erase(clientIt);
      }
 }
 
@@ -189,7 +195,7 @@ bool sendMessage(int sock, const std::string &msg)
 // Process command from client on the server
 
 void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
-                  char *buffer) 
+                  char *buffer)
 {
   std::vector<std::string> tokens;
   std::string token;
@@ -225,7 +231,7 @@ int main(int argc, char* argv[])
 
     // Setup socket for server to listen to
 
-    listenSock = open_socket(atoi(argv[1])); 
+    listenSock = open_socket(atoi(argv[1]));
     printf("Listening on port: %d\n", atoi(argv[1]));
 
     if(listen(listenSock, BACKLOG) < 0)
@@ -233,7 +239,7 @@ int main(int argc, char* argv[])
         printf("Listen failed on port %s\n", argv[1]);
         exit(0);
     }
-    else 
+    else
     // Add listen socket to the list of fds being polled.
     {
         fds.push_back({listenSock, POLLIN, 0});
@@ -285,32 +291,25 @@ int main(int argc, char* argv[])
                printf("Client connected on server: %d\n", clientSock);
             }
             // Now check for commands from clients
-            std::list<Client *> disconnectedClients;  
             for(size_t i = 1; i < readyFds.size(); i++)
             {
-                if(readyFds[i].revents & POLLIN)
+                if(readyFds[i].revents & (POLLIN | POLLHUP | POLLERR))
                 {
                     int sock = readyFds[i].fd;
-                    Client *client = clients[sock];
 
-                    // recv() == 0 means client has closed connection
-                    if(recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) == 0)
+                    // recv() == 0 means client has closed connection,
+                    // recv() < 0 means the connection broke (e.g. reset).
+                    // Leave room for a terminating '\0' in the buffer.
+                    if(recv(sock, buffer, sizeof(buffer) - 1, MSG_DONTWAIT) <= 0)
                     {
-                        disconnectedClients.push_back(client);
                         closeClient(sock, &fds);
-
                     }
-                    // We don't check for -1 (nothing received) because poll()
-                    // only triggers if there is something on the socket for us.
                     else
                     {
                         // std::cout << buffer << std::endl;
                         clientCommand(sock, &fds, buffer);
                     }
                 }
-               // Remove client from the clients list
-               for(auto const& c : disconnectedClients)
-                  clients.erase(c->sock);
             }
         }
     }
