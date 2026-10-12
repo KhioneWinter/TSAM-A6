@@ -1,7 +1,7 @@
 //
 // Simple chat server for TSAM
 //
-// Command line: ./server <port>
+// Command line: ./tsamserver <port>
 //
 // Author(s):
 //    Jacky Mallett (jacky@ru.is)
@@ -14,35 +14,20 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include <algorithm>
 #include <map>
 #include <vector>
-#include <list>
 #include <poll.h>
 
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <thread>
-#include <map>
 #include <ctime>
-
-
-// // fix SOCK_NONBLOCK for OSX
-// #ifndef SOCK_NONBLOCK
-// #include <fcntl.h>
-// #define SOCK_NONBLOCK O_NONBLOCK
-// #endif
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
 
-// Framing: <SOH><length><STX><command><ETX>, length is 16 bits in network
-// byte order and counts the whole frame including the 5 framing bytes.
 #define SOH        0x01
 #define STX        0x02
 #define ETX        0x03
@@ -98,46 +83,16 @@ void logMsg(const std::string &msg)
     }
 }
 
-//TODO: The server must listen on one TCP port so clients can connect to it
-//TODO: The server must be able to maintain connections to multiple clients simultaniously,
-            // it also has to react to commands from all of the clients without unreasonable delay
-//TODO: The server must be able to handle a sequence of multiple requests per connection
-//TODO: the server must operate auonomously!!
-            // the server must not accept nor wait for any imput on the terminal.
-            // All connection with the server must happen through TCP sockets
-//TODO: you may run the server on TSAM server or on some other computer.
-            // Note that in a later assignment you must run the server such that other groups can connect to it
-//TODO: The executable of your server must be called "tsamserver", the server port you are listening on must be the fist command line argument
-            // Example: ./tsamserver 4044
-            // other command line arguments must be optional
-//TODO: the server must keep a timestamp log of all commands sent and received,
-            // this log may constain other information about the server state to facilitate debugging
-//TODO: Do not hard code any IP adredded or port numbers, use additional command line arguments,
-            // a config file or commands sent from you client if you need additional input
-
-
-
 
 // Simple class for handling connections from clients.
-//
-// Client(int socket) - socket to send/receive traffic from client.
+// Holds the per-client state, keyed by socket in "clients".
 class Client
 {
   public:
-    int sock;              // socket of client connection
-    std::string name;           // Limit length of name of client's user
     std::string inbuf;     // Bytes received but not yet part of a whole frame
-
-    Client(int socket) : sock(socket){}
-
-    ~Client(){}            // Virtual destructor defined for base class
 };
 
 std::map<int, Client*> clients; // Lookup table for per Client information
-
-// Open socket for specified port.
-//
-// Returns -1 if unable to create the socket for any reason.
 
 int open_socket(int portno)
 {
@@ -147,19 +102,12 @@ int open_socket(int portno)
 
    // Create socket for connection. Set to be non-blocking, so recv will
    // return immediately if there isn't anything waiting to be read.
-// #ifdef __APPLE__
-//    if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-//    {
-//       perror("Failed to open socket");
-//       return(-1);
-//    }
-// #else
+
    if((sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
    {
      perror("Failed to open socket");
     return(-1);
    }
-// #endif
 
    // Turn on SO_REUSEADDR to allow socket to be quickly reused after
    // program exit.
@@ -168,13 +116,6 @@ int open_socket(int portno)
    {
       perror("Failed to set SO_REUSEADDR:");
    }
-   set = 1;
-// #ifdef __APPLE__
-//    if(setsockopt(sock, SOL_SOCKET, SOCK_NONBLOCK, &set, sizeof(set)) < 0)
-//    {
-//      perror("Failed to set SOCK_NOBBLOCK");
-//    }
-// #endif
     memset(&sk_addr, 0, sizeof(sk_addr));
 
     sk_addr.sin_family      = AF_INET;
@@ -327,11 +268,6 @@ bool sendMessage(int sock, const std::string &command)
             return false;  // real error, client is gone
         }
 
-        if(n == 0)        // client is gone
-        {
-            return false;
-        }
-
         p         += n;
         remaining -= n;
     }
@@ -456,7 +392,7 @@ int main(int argc, char* argv[])
                     fds.push_back({clientSock, POLLIN, 0});
 
                    // create a new client to store information.
-                    clients[clientSock] = new Client(clientSock);
+                    clients[clientSock] = new Client();
 
                     logMsg("Client " + std::to_string(clientSock) + " connected from "
                             + inet_ntoa(client.sin_addr) + ":"
