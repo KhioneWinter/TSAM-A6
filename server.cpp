@@ -1,7 +1,11 @@
 //
 // Simple mail server for TSAM assignment A6.
 //
-// Usage: ./tsamserver <port>
+// Command line: ./tsamserver <port>
+//
+// Author(s):
+//    Jacky Mallett (jacky@ru.is)
+//    Stephan Schiffel (stephans@ru.is)
 
 #include <stdio.h>
 #include <errno.h>
@@ -10,28 +14,23 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include <algorithm>
 #include <map>
 #include <vector>
-#include <list>
-#include <queue>
 #include <poll.h>
 
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <ctime>
-#include <set>
 
-#define BACKLOG  5
-#define SOH      0x01
-#define STX      0x02
-#define ETX      0x03
+#define BACKLOG  5          // Allowed length of queue of waiting connections
+
+#define SOH        0x01
+#define STX        0x02
+#define ETX        0x03
 #define FRAME_OVERHEAD 5
 #define MAX_FRAME 5000
 
@@ -82,18 +81,16 @@ void logMsg(const std::string &msg)
     }
 }
 
+
+// Simple class for handling connections from clients.
+// Holds the per-client state, keyed by socket in "clients".
 class Client
 {
   public:
-    int sock;
-    std::string name;
-    std::string inbuf;
-
-    explicit Client(int socket) : sock(socket) {}
+    std::string inbuf;     // Bytes received but not yet part of a whole frame
 };
 
-std::map<int, Client *> clients;
-std::map<std::string, std::queue<std::string> > mailboxes;
+std::map<int, Client*> clients; // Lookup table for per Client information
 
 int open_socket(int portno)
 {
@@ -101,113 +98,132 @@ int open_socket(int portno)
     int sock;
     int set = 1;
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
-    {
-        perror("Failed to open socket");
-        return -1;
-    }
+   // Create socket for connection. Set to be non-blocking, so recv will
+   // return immediately if there isn't anything waiting to be read.
 
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
-    {
-        perror("Failed to set SO_REUSEADDR");
-    }
+   if((sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
+   {
+     perror("Failed to open socket");
+    return(-1);
+   }
 
+   // Turn on SO_REUSEADDR to allow socket to be quickly reused after
+   // program exit.
+
+   if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
+   {
+      perror("Failed to set SO_REUSEADDR:");
+   }
     memset(&sk_addr, 0, sizeof(sk_addr));
-    sk_addr.sin_family = AF_INET;
+
+    sk_addr.sin_family      = AF_INET;
     sk_addr.sin_addr.s_addr = INADDR_ANY;
-    sk_addr.sin_port = htons(static_cast<uint16_t>(portno));
+    sk_addr.sin_port        = htons(portno);
 
-    if (bind(sock, (struct sockaddr *)&sk_addr, sizeof(sk_addr)) < 0)
+   // Bind to socket to listen for connections from clients
+
+    if(bind(sock, (struct sockaddr *)&sk_addr, sizeof(sk_addr)) < 0)
     {
-        perror("Failed to bind to socket");
-        close(sock);
-        return -1;
+        perror("Failed to bind to socket:");
+        return(-1);
     }
-
-    return sock;
+    else
+    {
+        return(sock);
+    }
 }
+
+// Close a client's connection, remove it from the list of file
+// descriptors being watched by poll(), and free its entry in the
+// "clients" map.
 
 void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
 {
     logMsg("Client " + std::to_string(clientSocket) + " disconnected");
 
+    close(clientSocket);
+
+    // Find and remove this socket's entry from the list of fds polled.
     auto fdIt = std::find_if(fds->begin(), fds->end(),
-                             [clientSocket](const struct pollfd &pfd) {
-                                 return pfd.fd == clientSocket;
-                             });
-    if (fdIt != fds->end())
+                    [clientSocket](const struct pollfd &pfd)
+                    {
+                        return pfd.fd == clientSocket;
+                    });
+
+    if(fdIt != fds->end())
     {
         fds->erase(fdIt);
     }
 
+    // Remove the client's record and free it.
     auto clientIt = clients.find(clientSocket);
-    if (clientIt != clients.end())
+
+    if(clientIt != clients.end())
     {
         delete clientIt->second;
         clients.erase(clientIt);
     }
-
-    close(clientSocket);
 }
 
 std::string frame(const std::string &command)
 {
-    uint16_t len = htons(static_cast<uint16_t>(command.length() + FRAME_OVERHEAD));
+    uint16_t len = htons(command.length() + FRAME_OVERHEAD);
     std::string out;
-    out += static_cast<char>(SOH);
-    out.append(reinterpret_cast<const char *>(&len), 2);
-    out += static_cast<char>(STX);
+
+    out += (char)SOH;
+    out.append((const char *)&len, 2);
+    out += (char)STX;
     out += command;
-    out += static_cast<char>(ETX);
+    out += (char)ETX;
+
     return out;
 }
 
 bool extractFrame(int sock, std::string &buf, std::string &command)
 {
-    while (!buf.empty())
+    while(!buf.empty())
     {
-        size_t start = buf.find(static_cast<char>(SOH));
-        if (start == std::string::npos)
+        // Skip anything before the start of a frame
+        size_t start = buf.find((char)SOH);
+
+        if(start == std::string::npos)
         {
-            logMsg("Discarded " + std::to_string(buf.size()) + " bytes of garbage from client " +
-                   std::to_string(sock) + ": " + printable(buf));
+            logMsg("Discarded " + std::to_string(buf.size()) + " bytes of garbage from client "
+                    + std::to_string(sock) + ": " + printable(buf));
             buf.clear();
             return false;
         }
-
-        if (start > 0)
+        if(start > 0)
         {
-            logMsg("Discarded " + std::to_string(start) + " bytes of garbage from client " +
-                   std::to_string(sock) + ": " + printable(buf.substr(0, start)));
+            logMsg("Discarded " + std::to_string(start) + " bytes of garbage from client "
+                + std::to_string(sock) + ": " + printable(buf.substr(0, start)));
             buf.erase(0, start);
         }
 
-        if (buf.size() < 3)
+        if(buf.size() < 3)
         {
-            return false;
+            return false;          // length field not here yet
         }
 
-        size_t len = (static_cast<unsigned char>(buf[1]) << 8) |
-                     static_cast<unsigned char>(buf[2]);
+        size_t len = (((unsigned char)buf[1] << 8) | (unsigned char)buf[2]);
 
-        if (len < FRAME_OVERHEAD || len > MAX_FRAME)
+        if( len < FRAME_OVERHEAD || len > MAX_FRAME + FRAME_OVERHEAD)
         {
-            logMsg("Invalid frame length " + std::to_string(len) + " from client " +
-                   std::to_string(sock) + ", discarding");
-            buf.erase(0, 1);
+            logMsg("Invalid frame length " + std::to_string(len) + " from client "
+                + std::to_string(sock) + ", discarding");
+            buf.erase(0, 1);       // drop this SOH and look for the next one
             continue;
         }
 
-        if (buf.size() < len)
+        if(buf.size() < len)
         {
-            return false;
+            return false;          // rest of the frame not here yet
         }
 
-        if (buf[3] != STX || buf[len - 1] != ETX)
+        if(buf[3] != STX || buf[len - 1] != ETX)
         {
-            logMsg("Malformed frame from client " + std::to_string(sock) +
-                   ", discarding: " + printable(buf.substr(0, len)));
+            logMsg("Malformed frame from client " + std::to_string(sock)
+                    + ", discarding: " + printable(buf.substr(0, len)));
             buf.erase(0, 1);
             continue;
         }
@@ -216,90 +232,36 @@ bool extractFrame(int sock, std::string &buf, std::string &command)
         buf.erase(0, len);
         return true;
     }
-
     return false;
 }
 
 bool sendMessage(int sock, const std::string &command)
 {
-    std::string msg = frame(command);
-    const char *p = msg.c_str();
+    std::string msg  = frame(command);
+    const char *p    = msg.c_str();
     size_t remaining = msg.length();
 
     logMsg("Sent to client " + std::to_string(sock) + ": " + printable(command));
 
-    while (remaining > 0)
+    while(remaining > 0)
     {
+        // MSG_NOSIGNAL: a client that has gone away must not kill the server
         int n = send(sock, p, remaining, MSG_NOSIGNAL);
-        if (n < 0)
+
+        if(n < 0)
         {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            if(errno == EINTR )
             {
-                continue;
+            continue;   // interrupted by a signal,  try again
             }
-            return false;
+            return false;  // real error, client is gone
         }
-        if (n == 0)
-        {
-            return false;
-        }
-        p += n;
-        remaining -= static_cast<size_t>(n);
+
+        p         += n;
+        remaining -= n;
     }
+
     return true;
-}
-
-std::string mailboxStatus()
-{
-    if (mailboxes.empty())
-    {
-        return "EMPTY";
-    }
-
-    std::vector<std::string> names;
-    names.reserve(mailboxes.size());
-    for (const auto &entry : mailboxes)
-    {
-        names.push_back(entry.first);
-    }
-    std::sort(names.begin(), names.end());
-
-    std::ostringstream output;
-    for (size_t i = 0; i < names.size(); ++i)
-    {
-        if (i > 0)
-        {
-            output << ",";
-        }
-        output << names[i] << ":" << mailboxes[names[i]].size();
-    }
-    return output.str();
-}
-
-bool parseSendMessage(const std::string &command, std::string &from, std::string &to, std::string &message)
-{
-    if (command.compare(0, 8, "SENDMSG,") != 0)
-    {
-        return false;
-    }
-
-    std::string rest = command.substr(8);
-    const size_t first = rest.find(',');
-    if (first == std::string::npos)
-    {
-        return false;
-    }
-    const size_t second = rest.find(',', first + 1);
-    if (second == std::string::npos)
-    {
-        return false;
-    }
-
-    from = rest.substr(0, first);
-    to = rest.substr(first + 1, second - first - 1);
-    message = rest.substr(second + 1);
-
-    return !from.empty() && !to.empty();
 }
 
 bool parseGetMessage(const std::string &command, std::string &username)
@@ -313,78 +275,25 @@ bool parseGetMessage(const std::string &command, std::string &username)
     return !username.empty();
 }
 
-void clientCommand(int clientSocket, std::vector<struct pollfd> *fds, const std::string &command)
+void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
+    const std::string &command)
 {
+    std::vector<std::string> tokens;
+    std::string token;
+
     logMsg("Received from client " + std::to_string(clientSocket) + ": " + printable(command));
 
-    if (command == "STATUSREQ")
-    {
-        if (!sendMessage(clientSocket, mailboxStatus()))
-        {
-            closeClient(clientSocket, fds);
-        }
+    // Split command from client into comma separated tokens for parsing
+    std::stringstream stream(command);
+
+    while(std::getline(stream, token, ','))
+        tokens.push_back(token);
+
+    if(tokens.empty())
         return;
-    }
 
-    if (command.compare(0, 7, "GETMSG,") == 0)
-    {
-        std::string username;
-        if (!parseGetMessage(command, username))
-        {
-            if (!sendMessage(clientSocket, "ERROR"))
-            {
-                closeClient(clientSocket, fds);
-            }
-            return;
-        }
-
-        auto &queue = mailboxes[username];
-        if (queue.empty())
-        {
-            if (!sendMessage(clientSocket, "EMPTY"))
-            {
-                closeClient(clientSocket, fds);
-            }
-            return;
-        }
-
-        std::string stored = queue.front();
-        queue.pop();
-        if (queue.empty())
-        {
-            mailboxes.erase(username);
-        }
-
-        if (!sendMessage(clientSocket, "MSG," + stored))
-        {
-            closeClient(clientSocket, fds);
-        }
-        return;
-    }
-
-    if (command.compare(0, 8, "SENDMSG,") == 0)
-    {
-        std::string from;
-        std::string to;
-        std::string message;
-        if (!parseSendMessage(command, from, to, message))
-        {
-            if (!sendMessage(clientSocket, "ERROR"))
-            {
-                closeClient(clientSocket, fds);
-            }
-            return;
-        }
-
-        mailboxes[to].push(from + ":" + message);
-        if (!sendMessage(clientSocket, "OK"))
-        {
-            closeClient(clientSocket, fds);
-        }
-        return;
-    }
-
-    if (!sendMessage(clientSocket, "ERROR"))
+    // For now just acknowledge every command so the client sees a reply
+    if(!sendMessage(clientSocket, "Received: " + tokens[0]))
     {
         closeClient(clientSocket, fds);
     }
@@ -440,46 +349,51 @@ int main(int argc, char *argv[])
 
         std::vector<struct pollfd> readyFds = fds;
 
-        if (readyFds[0].revents & POLLIN)
-        {
-            int clientSock = accept(listenSock, (struct sockaddr *)&client, &clientLen);
-            if (clientSock < 0)
+            // First, accept any new connections to the server on the listening socket
+            if(readyFds[0].revents & POLLIN)
             {
-                perror("accept failed");
-            }
-            else
-            {
-                fds.push_back({clientSock, POLLIN, 0});
-                clients[clientSock] = new Client(clientSock);
-                logMsg("Client " + std::to_string(clientSock) + " connected from " +
-                       inet_ntoa(client.sin_addr) + ":" + std::to_string(ntohs(client.sin_port)));
-            }
-        }
+                clientLen = sizeof(client);
+                clientSock = accept(listenSock, (struct sockaddr *)&client,
+                                    &clientLen);
 
-        for (size_t i = 1; i < readyFds.size(); ++i)
-        {
-            if (!(readyFds[i].revents & (POLLIN | POLLHUP | POLLERR)))
-            {
-                continue;
-            }
+                if(clientSock < 0)
+                {
+                    perror("accept failed");
+                }
+                else
+                {
+                    // Add new client to the list of fds being polled
+                    fds.push_back({clientSock, POLLIN, 0});
 
-            const int sock = readyFds[i].fd;
-            const ssize_t nread = recv(sock, buffer, sizeof(buffer), 0);
-            if (nread <= 0)
-            {
-                closeClient(sock, &fds);
-                continue;
-            }
+                   // create a new client to store information.
+                    clients[clientSock] = new Client();
 
-            auto it = clients.find(sock);
-            if (it == clients.end())
-            {
-                continue;
+                    logMsg("Client " + std::to_string(clientSock) + " connected from "
+                            + inet_ntoa(client.sin_addr) + ":"
+                            + std::to_string(ntohs(client.sin_port)));
+                }
             }
+            // Now check for commands from clients
+            for(size_t i = 1; i < readyFds.size(); i++)
+            {
+                if(readyFds[i].revents & (POLLIN | POLLHUP | POLLERR))
+                {
+                    int sock = readyFds[i].fd;
 
-            std::string &inbuf = it->second->inbuf;
-            std::string command;
-            inbuf.append(buffer, static_cast<size_t>(nread));
+                    // recv() == 0 means client has closed connection,
+                    // recv() < 0 means the connection broke (e.g. reset).
+                    int nread = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+
+                    if(nread <= 0)
+                    {
+                        closeClient(sock, &fds);
+                    }
+                    else
+                    {
+                        // TCP is a byte stream: add what arrived to this
+                        // client's buffer and handle every complete frame.
+                        std::string &inbuf = clients[sock]->inbuf;
+                        std::string command;
 
             while (extractFrame(sock, inbuf, command))
             {
