@@ -23,6 +23,7 @@
 #include <map>
 #include <vector>
 #include <poll.h>
+#include <time.h>
 
 #include <iostream>
 #include <sstream>
@@ -112,6 +113,18 @@ bool unwrapFrame(std::string &buffer, std::string &message) {
 }
 
 
+
+std::string timestamp() {
+    char timeArr[32];
+    time_t timeNow = time(nullptr);
+    struct tm theTime;
+    gmtime_r(&timeNow, &theTime);
+    strftime(timeArr, sizeof(timeArr), "%Y-%m-%dT%H:%M:%S", &theTime);
+
+    return timeArr;
+}
+
+
 bool handlingServerData(int sock, std::string &buffer) {
     // checks if the connection to the server is still active
     
@@ -130,11 +143,20 @@ bool handlingServerData(int sock, std::string &buffer) {
     }
     // stable connection
     buffer.append(temp, n);
-    //TODO: unwrap the frames
+
+    std::string messageStr;
+    while (unwrapFrame(buffer, messageStr)) {
+        // Unwrapping the frames
+        std::string currTimeStamp = timestamp();
+        std::cout << "TIME: " << currTimeStamp << " RECEIVED: " << messageStr << "\n";
+        
+    }
 
 
     return true;
 }
+
+
 
 bool handlingUserData(int sock, std::string &inputBuffer) {
     // reads what the user types and sends the lines to the server
@@ -170,11 +192,13 @@ bool handlingUserData(int sock, std::string &inputBuffer) {
             return false;
         }
         
-        std::cout << "sent: " << line << "\n";
+        std::string currTimeStamp = timestamp();
+        std::cout << "TIME: " << currTimeStamp << "SENT: " << line << "\n";
     }
     
     return true;
 }
+
 
 
 
