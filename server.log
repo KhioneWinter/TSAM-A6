@@ -1,0 +1,9 @@
+[2026-10-11 17:23:07] Server listening on port 4044
+[2026-10-11 18:45:33] Server listening on port 4045
+[2026-10-11 18:45:49] Client 5 connected from 127.0.0.1:44646
+[2026-10-11 18:46:02] Received from client 5: LAAAA
+[2026-10-11 18:46:02] Sent to client 5: ERROR
+[2026-10-11 18:52:06] Received from client 5: SENDMSG,alice,bob,hello
+[2026-10-11 18:52:06] Sent to client 5: OK
+[2026-10-11 18:52:06] Received from client 5: STATUSREQ
+[2026-10-11 18:52:06] Sent to client 5: bob:1

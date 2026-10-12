@@ -1,87 +1,87 @@
-# TSAM A6 – Mail server and client
+# TSAM A6 – Client-Server Messaging
 
-## The big picture
+This project implements a simple TCP mailbox server and command-line client for the TSAM assignment.
 
-```
-  ┌────────────┐        TCP         ┌────────────┐
-  │ tsamclient │ ─────────────────► │ tsamserver │
-  │            │ ◄───────────────── │            │
-  └────────────┘   framed messages  └────────────┘
-   keyboard in                        server.log
-   timestamped out                    mailboxes
-```
+## Development environment
 
-Several clients can be connected to one server at the same time.
+- Developed and tested on Ubuntu 22.04 inside WSL, with the code built using the standard Linux socket API and GCC.
+- The project is expected to compile on Linux without third-party networking libraries.
 
-## What a message looks like
+## Build
 
-```
- ┌─────┬──────────┬─────┬──────────────────┬─────┐
- │ SOH │ length   │ STX │ command          │ ETX │
- │ 0x01│ 2 bytes  │ 0x02│ e.g. STATUSREQ   │ 0x03│
- └─────┴──────────┴─────┴──────────────────┴─────┘
-   length = whole frame including the 5 framing bytes, max 5000
+From the project root, run:
+
+```bash
+make
 ```
 
-TCP can split or merge messages, so both sides keep a buffer and only
-handle a command once the whole frame has arrived.
+This builds:
 
-## Files
+- `./tsamserver`
+- `./tsamclient`
 
-```
-protocol.h / .cpp   shared: frame, unframe, timestamp
-server.cpp          tsamserver
-client.cpp          tsamclient
-Makefile            "make" builds both
-```
+## Run the server
 
-## Server idea
-
-```
-            poll() waits (no busy-waiting)
-                     │
-     ┌───────────────┼────────────────┐
-     ▼               ▼                ▼
- new client     data from client   client left
-  accept         add to buffer      close + clean up
-                     │
-               whole frame?
-                     │
-              handle command ──► reply + log
+```bash
+./tsamserver 4044
 ```
 
-Data the server keeps:
+The server listens on the TCP port passed as the first command-line argument. It keeps a timestamped `server.log` and handles multiple clients concurrently using `poll()`.
 
-```
-buffers    socket   ──► bytes received so far
-mailboxes  username ──► [ msg, msg, msg ]   (oldest first)
-```
+## Run the client
 
-## Commands
-
-| Command                         | What happens                              |
-|---------------------------------|-------------------------------------------|
-| `SENDMSG,<from>,<to>,<message>` | store message for `<to>`                  |
-| `GETMSG,<username>`             | send oldest message for user, delete it   |
-| `STATUSREQ`                     | `user1:2,user2:1` or `EMPTY`              |
-| anything else                   | error reply, logged, no crash             |
-
-## Client idea
-
-```
-      poll() on keyboard + socket
-          │                 │
-     user typed         server sent
-     frame + send       unframe + print
-     print with time    print with time
+```bash
+./tsamclient 127.0.0.1 4044
 ```
 
-## Plan
+Once connected, the client accepts commands from standard input; each line is framed and sent to the server. Incoming frames are unframed and printed with a timestamp.
 
-1. Framing (protocol)
-2. Server loop: connect / read / disconnect
-3. Server commands + log
-4. Client
-5. Test: many clients, reconnecting, garbage with `ncat`
-6. Record demo: `trace.pcapng`, `server.log`, `client-output.txt`
-7. Finish this README (how to build/run, OS, behaviour)
+## Commands supported
+
+The protocol uses the required framed format:
+
+```text
+<SOH><length><STX><command><ETX>
+```
+
+The server understands these commands:
+
+- `SENDMSG,<from>,<to>,<message>`
+  - Stores one message for the destination user.
+  - The message is queued in FIFO order for that recipient.
+
+- `GETMSG,<username>`
+  - Returns the oldest queued message for that user and deletes it.
+  - If no message exists, the server replies with `EMPTY`.
+
+- `STATUSREQ`
+  - Returns a fixed format reply listing each user with queued messages and the count:
+    - example: `alice:2,bob:1`
+    - empty mailbox: `EMPTY`
+
+Malformed frames and unknown commands are logged and rejected with an `ERROR` reply instead of crashing the server.
+
+## Behaviour notes
+
+- TCP is treated as a byte stream, so both client and server buffer incoming bytes until a complete framed message is available.
+- The server keeps one FIFO queue per user.
+- Clients may connect and disconnect repeatedly without the server crashing or losing state for other users.
+- The server avoids busy-waiting by blocking in `poll()` while idle.
+
+## Example session
+
+```text
+./tsamserver 4044
+./tsamclient 127.0.0.1 4044
+SENDMSG,alice,bob,hello
+STATUSREQ
+GETMSG,bob
+```
+
+Expected responses are framed and will appear as messages such as:
+
+```text
+OK
+bob:1
+MSG,alice:hello
+```

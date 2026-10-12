@@ -1,11 +1,7 @@
 //
-// Simple chat client for TSAM
+// Simple mail client for TSAM assignment A6.
 //
-// Command line: ./client <ip> <port>
-//
-// Author(s):
-//    Jacky Mallett (jacky@ru.is)
-//    Stephan Schiffel (stephans@ru.is)
+// Usage: ./tsamclient <ip> <port>
 
 #include <stdio.h>
 #include <errno.h>
@@ -20,127 +16,238 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <algorithm>
-#include <map>
 #include <vector>
 #include <poll.h>
 
 #include <iostream>
 #include <sstream>
+#include <ctime>
 
+#define SOH 0x01
+#define STX 0x02
+#define ETX 0x03
+#define FRAME_OVERHEAD 5
+#define MAX_FRAME 5000
 
-//TODO: the client must connect to your server on a given IP and TCP port
-//TODO: the executable of your client must be called tsamclient,
-            // it must accept two compand line arguments: IP address and port of the server
-            // For example: ./tsamcllient 127.0.0.1 4044
-            // any additional command line argument must be optional
-// TODO: the client must accept user input from stdin and as result send commands to the server
-// TODO: the client must recieve responces send by the server and display them for the user
-//TODO: the client must print out all commands sent and responses reseived with a human-readable timestamp (date and time)
-
-
-
-int main(int argc, char* argv[])
+std::string timestamp()
 {
-   struct addrinfo hints, *svr;              // Network host entry for server
-   struct sockaddr_in serv_addr;           // Socket address for server
-   int serverSocket;                         // Socket used for server 
-   int nwrite;                               // No. bytes written to server
-   int nread;                                // No. bytes read from server
-   char buffer[1025];                        // buffer for writing to server
-   bool finished;                   
-   int set = 1;                              // Toggle for setsockopt
+    char buf[32];
+    time_t now = time(nullptr);
+    struct tm tmNow;
 
-   if(argc != 3)
-   {
-        printf("Usage: chat_client <ip  port>\n");
+#if defined(_WIN32)
+    localtime_s(&tmNow, &now);
+#else
+    localtime_r(&now, &tmNow);
+#endif
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmNow);
+    return buf;
+}
+
+void printTimestamped(const std::string &label, const std::string &text)
+{
+    std::cout << "[" << timestamp() << "] " << label << text << std::endl;
+}
+
+std::string printable(const std::string &s)
+{
+    std::string out;
+    char hex[8];
+    for (unsigned char c : s)
+    {
+        if (c >= 0x20 && c < 0x7f)
+        {
+            out += static_cast<char>(c);
+        }
+        else
+        {
+            snprintf(hex, sizeof(hex), "\\x%02x", c);
+            out += hex;
+        }
+    }
+    return out;
+}
+
+std::string frame(const std::string &command)
+{
+    uint16_t len = htons(static_cast<uint16_t>(command.length() + FRAME_OVERHEAD));
+    std::string out;
+    out += static_cast<char>(SOH);
+    out.append(reinterpret_cast<const char *>(&len), 2);
+    out += static_cast<char>(STX);
+    out += command;
+    out += static_cast<char>(ETX);
+    return out;
+}
+
+bool extractFrame(std::string &buf, std::string &command)
+{
+    while (!buf.empty())
+    {
+        size_t start = buf.find(static_cast<char>(SOH));
+        if (start == std::string::npos)
+        {
+            buf.clear();
+            return false;
+        }
+        if (start > 0)
+        {
+            buf.erase(0, start);
+        }
+        if (buf.size() < 3)
+        {
+            return false;
+        }
+
+        size_t len = (static_cast<unsigned char>(buf[1]) << 8) |
+                     static_cast<unsigned char>(buf[2]);
+        if (len < FRAME_OVERHEAD || len > MAX_FRAME)
+        {
+            buf.erase(0, 1);
+            continue;
+        }
+        if (buf.size() < len)
+        {
+            return false;
+        }
+        if (buf[3] != STX || buf[len - 1] != ETX)
+        {
+            buf.erase(0, 1);
+            continue;
+        }
+
+        command = buf.substr(4, len - FRAME_OVERHEAD);
+        buf.erase(0, len);
+        return true;
+    }
+    return false;
+}
+
+void sendFramedCommand(int serverSocket, const std::string &command)
+{
+    const std::string msg = frame(command);
+    const char *p = msg.c_str();
+    size_t remaining = msg.length();
+
+    printTimestamped("Sent: ", printable(command));
+    while (remaining > 0)
+    {
+        ssize_t n = send(serverSocket, p, remaining, 0);
+        if (n <= 0)
+        {
+            std::cerr << "[" << timestamp() << "] send() failed\n";
+            exit(1);
+        }
+        p += n;
+        remaining -= static_cast<size_t>(n);
+    }
+}
+
+std::string trimLine(std::string s)
+{
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
+    {
+        s.pop_back();
+    }
+    return s;
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 3)
+    {
+        printf("Usage: ./tsamclient <ip> <port>\n");
         printf("Ctrl-C to terminate\n");
-        exit(0);
-   }
+        return 0;
+    }
 
-    memset(&hints,   0, sizeof(hints));
-
-    hints.ai_family   = AF_INET;            // IPv4 only addresses
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
+    struct addrinfo *serverInfo = nullptr;
+    if (getaddrinfo(argv[1], argv[2], &hints, &serverInfo) != 0)
+    {
+        perror("getaddrinfo failed");
+        return 1;
+    }
 
+    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket < 0)
+    {
+        perror("socket failed");
+        freeaddrinfo(serverInfo);
+        return 1;
+    }
 
-   if(getaddrinfo(argv[1], argv[2], &hints, &svr) != 0)
-   {
-       perror("getaddrinfo failed: ");
-       exit(0);
-   }
+    if (connect(serverSocket, serverInfo->ai_addr, serverInfo->ai_addrlen) != 0)
+    {
+        perror("connect failed");
+        close(serverSocket);
+        freeaddrinfo(serverInfo);
+        return 1;
+    }
+    freeaddrinfo(serverInfo);
 
-   
-   serv_addr.sin_port = htons(atoi(argv[2]));
+    printTimestamped("Connected to ", std::string(argv[1]) + ":" + argv[2]);
 
-   serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    std::vector<struct pollfd> fds;
+    fds.push_back({STDIN_FILENO, POLLIN, 0});
+    fds.push_back({serverSocket, POLLIN, 0});
 
-   // Turn on SO_REUSEADDR to allow socket to be quickly reused after 
-   // program exit.
+    std::string inbuf;
+    char readBuffer[4096];
 
-       // EINPROGRESS means that the connection is still being setup. Typically this
-       // only occurs with non-blocking sockets. (The serverSocket above is explicitly
-       // not in non-blocking mode, so this check here is just an example of how to
-       // handle this properly.)
-    // TODO: laga, its blocking
-       if(errno != EINPROGRESS)
-       {
-         printf("Failed to open socket to server: %s\n", argv[1]);
-         perror("Connect failed: ");
-         exit(0);
-       }
-   }
+    while (true)
+    {
+        int n = poll(fds.data(), fds.size(), -1);
+        if (n < 0)
+        {
+            perror("poll failed");
+            break;
+        }
 
-   // Watch both stdin (user typing a message) and the server socket
-   // (server sending us something) with a single poll() call, instead of
-   // using a separate thread for one of them.
-   std::vector<struct pollfd> fds;
-   fds.push_back({STDIN_FILENO,  POLLIN, 0});
-   fds.push_back({serverSocket,  POLLIN, 0});
+        if (fds[0].revents & (POLLIN | POLLHUP))
+        {
+            if ((fds[0].revents & POLLHUP) && !(fds[0].revents & POLLIN))
+            {
+                break;
+            }
 
-   finished = false;
-   while(!finished)
-   {
-       int n = poll(fds.data(), fds.size(), -1);
+            char line[2048];
+            if (fgets(line, sizeof(line), stdin) == nullptr)
+            {
+                break;
+            }
 
-       if(n < 0)
-       {
-           perror("poll failed: ");
-           finished = true;
-           continue;
-       }
+            std::string command = trimLine(std::string(line));
+            if (command.empty())
+            {
+                continue;
+            }
 
-       // Something typed by the user - read a line and send it to the server.
-       if(fds[0].revents & POLLIN)
-       {
-           bzero(buffer, sizeof(buffer));
+            sendFramedCommand(serverSocket, command);
+        }
 
-           fgets(buffer, sizeof(buffer), stdin);
+        if (fds[1].revents & (POLLIN | POLLHUP | POLLERR))
+        {
+            ssize_t nread = recv(serverSocket, readBuffer, sizeof(readBuffer), 0);
+            if (nread <= 0)
+            {
+                printTimestamped("Server disconnected", "");
+                break;
+            }
 
-           nwrite = send(serverSocket, buffer, strlen(buffer),0);
+            inbuf.append(readBuffer, static_cast<size_t>(nread));
+            std::string command;
+            while (extractFrame(inbuf, command))
+            {
+                printTimestamped("Received: ", printable(command));
+            }
+        }
+    }
 
-           if(nwrite  == -1)
-           {
-               perror("send() to server failed: ");
-               finished = true;
-           }
-       }
-
-       // Something received from the server - print it out.
-       if(fds[1].revents & POLLIN)
-       {
-          memset(buffer, 0, sizeof(buffer));
-          nread = read(serverSocket, buffer, sizeof(buffer));
-
-          if(nread == 0)                      // Server has dropped us
-          {
-             printf("Over and Out\n");
-             exit(0);
-          }
-          else if(nread > 0)
-          {
-             printf("%s\n", buffer);
-          }
-       }
-   }
+    close(serverSocket);
+    return 0;
 }
