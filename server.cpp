@@ -175,23 +175,23 @@ int open_socket(int portno)
 //      perror("Failed to set SOCK_NOBBLOCK");
 //    }
 // #endif
-   memset(&sk_addr, 0, sizeof(sk_addr));
+    memset(&sk_addr, 0, sizeof(sk_addr));
 
-   sk_addr.sin_family      = AF_INET;
-   sk_addr.sin_addr.s_addr = INADDR_ANY;
-   sk_addr.sin_port        = htons(portno);
+    sk_addr.sin_family      = AF_INET;
+    sk_addr.sin_addr.s_addr = INADDR_ANY;
+    sk_addr.sin_port        = htons(portno);
 
    // Bind to socket to listen for connections from clients
 
-   if(bind(sock, (struct sockaddr *)&sk_addr, sizeof(sk_addr)) < 0)
-   {
-      perror("Failed to bind to socket:");
-      return(-1);
-   }
-   else
-   {
-      return(sock);
-   }
+    if(bind(sock, (struct sockaddr *)&sk_addr, sizeof(sk_addr)) < 0)
+    {
+        perror("Failed to bind to socket:");
+        return(-1);
+    }
+    else
+    {
+        return(sock);
+    }
 }
 
 // Close a client's connection, remove it from the list of file
@@ -200,45 +200,45 @@ int open_socket(int portno)
 
 void closeClient(int clientSocket, std::vector<struct pollfd> *fds)
 {
-     logMsg("Client " + std::to_string(clientSocket) + " disconnected");
+    logMsg("Client " + std::to_string(clientSocket) + " disconnected");
 
-     close(clientSocket);
+    close(clientSocket);
 
-     // Find and remove this socket's entry from the list of fds polled.
-     auto fdIt = std::find_if(fds->begin(), fds->end(),
+    // Find and remove this socket's entry from the list of fds polled.
+    auto fdIt = std::find_if(fds->begin(), fds->end(),
                     [clientSocket](const struct pollfd &pfd)
                     {
                         return pfd.fd == clientSocket;
                     });
 
-     if(fdIt != fds->end())
-     {
-         fds->erase(fdIt);
-     }
+    if(fdIt != fds->end())
+    {
+        fds->erase(fdIt);
+    }
 
-     // Remove the client's record and free it.
-     auto clientIt = clients.find(clientSocket);
+    // Remove the client's record and free it.
+    auto clientIt = clients.find(clientSocket);
 
-     if(clientIt != clients.end())
-     {
-         delete clientIt->second;
-         clients.erase(clientIt);
-     }
+    if(clientIt != clients.end())
+    {
+        delete clientIt->second;
+        clients.erase(clientIt);
+    }
 }
 
 // Wrap a command in <SOH><length><STX>...<ETX>.
 std::string frame(const std::string &command)
 {
-   uint16_t len = htons(command.length() + FRAME_OVERHEAD);
-   std::string out;
+    uint16_t len = htons(command.length() + FRAME_OVERHEAD);
+    std::string out;
 
-   out += (char)SOH;
-   out.append((const char *)&len, 2);
-   out += (char)STX;
-   out += command;
-   out += (char)ETX;
+    out += (char)SOH;
+    out.append((const char *)&len, 2);
+    out += (char)STX;
+    out += command;
+    out += (char)ETX;
 
-   return out;
+    return out;
 }
 
 // Pull the next complete frame out of buf and put its command in command.
@@ -246,58 +246,58 @@ std::string frame(const std::string &command)
 // thrown away. Returns false when buf holds no complete frame (yet).
 bool extractFrame(int sock, std::string &buf, std::string &command)
 {
-   while(!buf.empty())
-   {
-      // Skip anything before the start of a frame
-      size_t start = buf.find((char)SOH);
+    while(!buf.empty())
+    {
+        // Skip anything before the start of a frame
+        size_t start = buf.find((char)SOH);
 
-      if(start == std::string::npos)
-      {
-         logMsg("Discarded " + std::to_string(buf.size()) + " bytes of garbage from client "
-                + std::to_string(sock) + ": " + printable(buf));
-         buf.clear();
-         return false;
-      }
-      if(start > 0)
-      {
-         logMsg("Discarded " + std::to_string(start) + " bytes of garbage from client "
+        if(start == std::string::npos)
+        {
+            logMsg("Discarded " + std::to_string(buf.size()) + " bytes of garbage from client "
+                    + std::to_string(sock) + ": " + printable(buf));
+            buf.clear();
+            return false;
+        }
+        if(start > 0)
+        {
+            logMsg("Discarded " + std::to_string(start) + " bytes of garbage from client "
                 + std::to_string(sock) + ": " + printable(buf.substr(0, start)));
-         buf.erase(0, start);
-      }
+            buf.erase(0, start);
+        }
 
-      if(buf.size() < 3)
-      {
-         return false;          // length field not here yet
-      }
+        if(buf.size() < 3)
+        {
+            return false;          // length field not here yet
+        }
 
-      size_t len = ((unsigned char)buf[1] << 8) | (unsigned char)buf[2];
+        size_t len = (((unsigned char)buf[1] << 8) | (unsigned char)buf[2]);
 
-      if(len < FRAME_OVERHEAD || len > MAX_FRAME)
-      {
-         logMsg("Invalid frame length " + std::to_string(len) + " from client "
+        if( len < FRAME_OVERHEAD || len > MAX_FRAME + FRAME_OVERHEAD)
+        {
+            logMsg("Invalid frame length " + std::to_string(len) + " from client "
                 + std::to_string(sock) + ", discarding");
-         buf.erase(0, 1);       // drop this SOH and look for the next one
-         continue;
-      }
+            buf.erase(0, 1);       // drop this SOH and look for the next one
+            continue;
+        }
 
-      if(buf.size() < len)
-      {
-         return false;          // rest of the frame not here yet
-      }
+        if(buf.size() < len)
+        {
+            return false;          // rest of the frame not here yet
+        }
 
-      if(buf[3] != STX || buf[len - 1] != ETX)
-      {
-         logMsg("Malformed frame from client " + std::to_string(sock)
-                + ", discarding: " + printable(buf.substr(0, len)));
-         buf.erase(0, 1);
-         continue;
-      }
+        if(buf[3] != STX || buf[len - 1] != ETX)
+        {
+            logMsg("Malformed frame from client " + std::to_string(sock)
+                    + ", discarding: " + printable(buf.substr(0, len)));
+            buf.erase(0, 1);
+            continue;
+        }
 
-      command = buf.substr(4, len - FRAME_OVERHEAD);
-      buf.erase(0, len);
-      return true;
-   }
-   return false;
+        command = buf.substr(4, len - FRAME_OVERHEAD);
+        buf.erase(0, len);
+        return true;
+    }
+    return false;
 }
 
 // Send a framed message to a client. send() may not be able to accept the
@@ -307,62 +307,62 @@ bool extractFrame(int sock, std::string &buf, std::string &command)
 
 bool sendMessage(int sock, const std::string &command)
 {
-   std::string msg  = frame(command);
-   const char *p    = msg.c_str();
-   size_t remaining = msg.length();
+    std::string msg  = frame(command);
+    const char *p    = msg.c_str();
+    size_t remaining = msg.length();
 
-   logMsg("Sent to client " + std::to_string(sock) + ": " + printable(command));
+    logMsg("Sent to client " + std::to_string(sock) + ": " + printable(command));
 
-   while(remaining > 0)
-   {
-      // MSG_NOSIGNAL: a client that has gone away must not kill the server
-      int n = send(sock, p, remaining, MSG_DONTWAIT | MSG_NOSIGNAL);
+    while(remaining > 0)
+    {
+        // MSG_NOSIGNAL: a client that has gone away must not kill the server
+        int n = send(sock, p, remaining, MSG_NOSIGNAL);
 
-      if(n < 0)
-      {
-         if(errno == EAGAIN || errno == EWOULDBLOCK)
-         {
-            continue;   // send buffer full, try again
-         }
-         return false;  // real error, client is gone
-      }
+        if(n < 0)
+        {
+            if(errno == EINTR )
+            {
+            continue;   // interrupted by a signal,  try again
+            }
+            return false;  // real error, client is gone
+        }
 
-      if(n == 0)        // client is gone
-      {
-         return false;
-      }
+        if(n == 0)        // client is gone
+        {
+            return false;
+        }
 
-      p         += n;
-      remaining -= n;
-   }
+        p         += n;
+        remaining -= n;
+    }
 
-   return true;
+    return true;
 }
 
 // Process command from client on the server
 
 void clientCommand(int clientSocket, std::vector<struct pollfd> *fds,
-                  const std::string &command)
+    const std::string &command)
 {
-  std::vector<std::string> tokens;
-  std::string token;
+    std::vector<std::string> tokens;
+    std::string token;
 
-  logMsg("Received from client " + std::to_string(clientSocket) + ": " + printable(command));
+    logMsg("Received from client " + std::to_string(clientSocket) + ": " + printable(command));
 
-  // Split command from client into comma separated tokens for parsing
-  std::stringstream stream(command);
+    // Split command from client into comma separated tokens for parsing
+    std::stringstream stream(command);
 
-  while(std::getline(stream, token, ','))
-      tokens.push_back(token);
+    while(std::getline(stream, token, ','))
+        tokens.push_back(token);
 
-  if(tokens.empty())
-      return;
+    if(tokens.empty())
+        return;
 
-  // For now just acknowledge every command so the client sees a reply
-  if(!sendMessage(clientSocket, "Received: " + tokens[0]))
-  {
-      closeClient(clientSocket, fds);
-  }
+    // For now just acknowledge every command so the client sees a reply
+    if(!sendMessage(clientSocket, "Received: " + tokens[0]))
+    {
+        closeClient(clientSocket, fds);
+    }
 }
 
 int main(int argc, char* argv[])
@@ -442,26 +442,26 @@ int main(int argc, char* argv[])
             // First, accept any new connections to the server on the listening socket
             if(readyFds[0].revents & POLLIN)
             {
-               clientLen = sizeof(client);
-               clientSock = accept(listenSock, (struct sockaddr *)&client,
-                                   &clientLen);
+                clientLen = sizeof(client);
+                clientSock = accept(listenSock, (struct sockaddr *)&client,
+                                    &clientLen);
 
-               if(clientSock < 0)
-               {
-                   perror("accept failed");
-               }
-               else
-               {
-                   // Add new client to the list of fds being polled
-                   fds.push_back({clientSock, POLLIN, 0});
+                if(clientSock < 0)
+                {
+                    perror("accept failed");
+                }
+                else
+                {
+                    // Add new client to the list of fds being polled
+                    fds.push_back({clientSock, POLLIN, 0});
 
                    // create a new client to store information.
-                   clients[clientSock] = new Client(clientSock);
+                    clients[clientSock] = new Client(clientSock);
 
-                   logMsg("Client " + std::to_string(clientSock) + " connected from "
-                          + inet_ntoa(client.sin_addr) + ":"
-                          + std::to_string(ntohs(client.sin_port)));
-               }
+                    logMsg("Client " + std::to_string(clientSock) + " connected from "
+                            + inet_ntoa(client.sin_addr) + ":"
+                            + std::to_string(ntohs(client.sin_port)));
+                }
             }
             // Now check for commands from clients
             for(size_t i = 1; i < readyFds.size(); i++)

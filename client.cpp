@@ -94,21 +94,42 @@ std::string frameingMessage(const std::string &command) {
 }
 
 bool unwrapFrame(std::string &buffer, std::string &message) {
-    if (buffer.length() < 3) {
-        return false; 
-    }
-    size_t size = (unsigned char)buffer[1] * 256 + (unsigned char)buffer[2];
-    
-    if (buffer.length() < size) {
-        return false;
-    }
-    
-    size = size-5;
-    message = buffer.substr(4, size);
+    size_t size;  
+    while (true) {
+        if (buffer.length() < 3) {
+            return false; 
+        }
 
-    buffer.erase(0, size);
+        if (buffer[0] != SOH) {
+            size_t possition = buffer.find(SOH);
+            if (possition == std::string::npos) {
+                buffer.clear();
+                return false;
+            }
+            buffer.erase(0, possition);
+            continue;
+        }
+        
+        size = (unsigned char)buffer[1] * 256 + (unsigned char)buffer[2];
+        if (buffer.length() < size) {
+            return false;
+        }
 
-    return true;
+        if (size < 5) {
+            buffer.erase(0,1);
+            continue;
+        }
+
+        if (buffer[3] != STX || buffer[size-1] != ETX) {
+            buffer.erase(0,1);
+            continue;
+        }
+    
+        message = buffer.substr(4, size-5);
+        buffer.erase(0, size);
+
+        return true;
+    }
 
 }
 
@@ -148,7 +169,7 @@ bool handlingServerData(int sock, std::string &buffer) {
     while (unwrapFrame(buffer, messageStr)) {
         // Unwrapping the frames
         std::string currTimeStamp = timestamp();
-        std::cout << "TIME: " << currTimeStamp << " RECEIVED: " << messageStr << "\n";
+        std::cout << "[" << currTimeStamp << "] RECEIVED: " << messageStr << "\n";
         
     }
 
@@ -187,13 +208,13 @@ bool handlingUserData(int sock, std::string &inputBuffer) {
             continue;
         }
         std::string frame = frameingMessage(line);
-        if (send(sock, frame.data(), frame.length(), 0), 0) {
+        if (send(sock, frame.data(), frame.length(), 0) < 0) {
             perror("the sending failed");
             return false;
         }
         
         std::string currTimeStamp = timestamp();
-        std::cout << "TIME: " << currTimeStamp << "SENT: " << line << "\n";
+        std::cout << "[" << currTimeStamp << "] SENT: " << line << "\n";
     }
     
     return true;
