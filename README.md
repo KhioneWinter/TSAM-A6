@@ -1,87 +1,44 @@
-# TSAM A6 – Mail server and client
+## how to compile and run our code: 
 
-## The big picture
-
+Compile the code:
 ```
-  ┌────────────┐        TCP         ┌────────────┐
-  │ tsamclient │ ─────────────────► │ tsamserver │
-  │            │ ◄───────────────── │            │
-  └────────────┘   framed messages  └────────────┘
-   keyboard in                        server.log
-   timestamped out                    mailboxes
+make
 ```
 
-Several clients can be connected to one server at the same time.
+To run the tsam server:
+./tsamserver <portnumber>
 
-## What a message looks like
-
+Example:
 ```
- ┌─────┬──────────┬─────┬──────────────────┬─────┐
- │ SOH │ length   │ STX │ command          │ ETX │
- │ 0x01│ 2 bytes  │ 0x02│ e.g. STATUSREQ   │ 0x03│
- └─────┴──────────┴─────┴──────────────────┴─────┘
-   length = whole frame including the 5 framing bytes, max 5000
+./tsamserver 4022
 ```
 
-TCP can split or merge messages, so both sides keep a buffer and only
-handle a command once the whole frame has arrived.
+To run the tsam client:
+./tsamclient <IPaddress> <portnumber>
 
-## Files
-
+Example:
 ```
-protocol.h / .cpp   shared: frame, unframe, timestamp
-server.cpp          tsamserver
-client.cpp          tsamclient
-Makefile            "make" builds both
+./tsamclient 127.0.0.1 4022
 ```
 
-## Server idea
+## Operating system:
+- We all are useing Linux although we all own windows computers 
 
-```
-            poll() waits (no busy-waiting)
-                     │
-     ┌───────────────┼────────────────┐
-     ▼               ▼                ▼
- new client     data from client   client left
-  accept         add to buffer      close + clean up
-                     │
-               whole frame?
-                     │
-              handle command ──► reply + log
-```
+## Commands:
+SENDMSG, <from>, <to>, <message>
 
-Data the server keeps:
 
-```
-buffers    socket   ──► bytes received so far
-mailboxes  username ──► [ msg, msg, msg ]   (oldest first)
-```
 
-## Commands
+## How the server behaves in other situations
+- Several clients: we implemented a poll loop so that the clients dont have to wait for each other and theres no busy waiting. 
+- Message split or merged by TCP: each client has its own buffer and the cammends arent handled until the whole frame is avialable.
+- Malformed input: these are the cases where the bytes get discarded: they bytes before SOH, a size smaller then 5 or over 5005 and  missing STX/ETX.
+- Long commands: commands of up to 500 bytes are supported but larger ones are trashed
+- A client disconnects: if they disconnect then the socket and buffere are cleaned up and its loggerd. the stored messages stay. since they belong to the usernames not the connections so they can be fetched after reconnecting. 
+- Log: server.log gets all the commands recieded and sent, connects/disconnects and junk written with timestamps. They are also printed to the terminal. 
 
-| Command                         | What happens                              |
-|---------------------------------|-------------------------------------------|
-| `SENDMSG,<from>,<to>,<message>` | store message for `<to>`                  |
-| `GETMSG,<username>`             | send oldest message for user, delete it   |
-| `STATUSREQ`                     | `user1:2,user2:1` or `EMPTY`              |
-| anything else                   | error reply, logged, no crash             |
+## Client behaviour
+- One command per line and empty lines get skipped
+- theres a printed timestamp with a UTC ISO 8601  with every command and recieved reply.
+- junk from the server gets discarded
 
-## Client idea
-
-```
-      poll() on keyboard + socket
-          │                 │
-     user typed         server sent
-     frame + send       unframe + print
-     print with time    print with time
-```
-
-## Plan
-
-1. Framing (protocol)
-2. Server loop: connect / read / disconnect
-3. Server commands + log
-4. Client
-5. Test: many clients, reconnecting, garbage with `ncat`
-6. Record demo: `trace.pcapng`, `server.log`, `client-output.txt`
-7. Finish this README (how to build/run, OS, behaviour)
