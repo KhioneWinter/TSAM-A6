@@ -1,0 +1,11 @@
+STATUSREQ
+SENDMSG,alice,bob,hi bob
+SENDMSG,carol,bob,hello, from carol
+SENDMSG,bob,alice,hey alice
+STATUSREQ
+GETMSG,bob
+GETMSG,bob
+GETMSG,bob
+GETMSG,alice
+STATUSREQ
+HELLO

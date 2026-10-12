@@ -1,40 +1,34 @@
-[2026-10-12 17:28:56] Server listening on port 2222
-[2026-10-12 17:28:58] Client 5 connected from 172.28.91.221:58206
-[2026-10-12 17:29:00] Received from client 5: hello
-[2026-10-12 17:29:00] Unknown command from client 5: hello
-[2026-10-12 17:29:00] Sent to client 5: ERROR,unknown command
-[2026-10-12 17:29:15] Received from client 5: SENDMSG,hello
-[2026-10-12 17:29:15] Sent to client 5: ERROR,usage: SENDMSG,<from>,<to>,<message>
-[2026-10-12 17:30:06] Received from client 5: SENDMSG,gunnar,fannar,h\xc3\xa6fannar
-[2026-10-12 17:30:06] Stored message from gunnar for fannar (1 now waiting)
-[2026-10-12 17:30:06] Sent to client 5: OK,message stored for fannar
-[2026-10-12 17:30:22] Received from client 5: statusreq
-[2026-10-12 17:30:22] Unknown command from client 5: statusreq
-[2026-10-12 17:30:22] Sent to client 5: ERROR,unknown command
-[2026-10-12 17:30:28] Received from client 5: STATUSREQ                         
-[2026-10-12 17:30:28] Unknown command from client 5: STATUSREQ                         
-[2026-10-12 17:30:28] Sent to client 5: ERROR,unknown command
-[2026-10-12 17:31:02] Received from client 5: GETMSG,gunnar
-[2026-10-12 17:31:02] Sent to client 5: NOMSG,no messages for gunnar
-[2026-10-12 17:31:09] Received from client 5: GETMSG,fannar
-[2026-10-12 17:31:09] Delivered message from gunnar to fannar
-[2026-10-12 17:31:09] Sent to client 5: MSG,gunnar,h\xc3\xa6fannar
-[2026-10-12 17:32:29] Received from client 5: STATUSREQ
-[2026-10-12 17:32:29] Sent to client 5: EMPTY
-[2026-10-12 17:32:48] Received from client 5: SENDMSG,alice,bob,hi, with commas
-[2026-10-12 17:32:48] Stored message from alice for bob (1 now waiting)
-[2026-10-12 17:32:48] Sent to client 5: OK,message stored for bob
-[2026-10-12 17:32:56] Received from client 5: SENDMSG,bob,alice,yo              
-[2026-10-12 17:32:56] Stored message from bob for alice (1 now waiting)
-[2026-10-12 17:32:56] Sent to client 5: OK,message stored for alice
-[2026-10-12 17:33:03] Received from client 5: SENDMSG,carol,bob,second
-[2026-10-12 17:33:03] Stored message from carol for bob (2 now waiting)
-[2026-10-12 17:33:03] Sent to client 5: OK,message stored for bob
-[2026-10-12 17:33:21] Received from client 5: GETMSG,bob
-[2026-10-12 17:33:21] Delivered message from alice to bob
-[2026-10-12 17:33:21] Sent to client 5: MSG,alice,hi, with commas
-[2026-10-12 17:33:46] Received from client 5: STATUSREQ
-[2026-10-12 17:33:46] Sent to client 5: alice:1,bob:1
-[2026-10-12 17:33:50] Received from client 5: STATUSREQ
-[2026-10-12 17:33:50] Sent to client 5: alice:1,bob:1
-[2026-10-12 17:33:51] Client 5 disconnected
+[2026-10-12 17:59:22] Server listening on port 4044
+[2026-10-12 17:59:29] Client 5 connected from 172.28.91.221:58064
+[2026-10-12 17:59:47] Client 5 disconnected
+[2026-10-12 17:59:51] Client 5 connected from 127.0.0.1:35438
+[2026-10-12 18:00:05] Received from client 5: STATUSREQ
+[2026-10-12 18:00:05] Sent to client 5: EMPTY
+[2026-10-12 18:00:12] Received from client 5: SENDMSG,alice,bob,hi bob
+[2026-10-12 18:00:12] Stored message from alice for bob
+[2026-10-12 18:00:12] Sent to client 5: OK,message stored for bob
+[2026-10-12 18:00:21] Received from client 5: SENDMSG,carol,bob,hello, from carol
+[2026-10-12 18:00:21] Stored message from carol for bob
+[2026-10-12 18:00:21] Sent to client 5: OK,message stored for bob
+[2026-10-12 18:00:27] Received from client 5: SENDMSG,bob,alice,hey alice
+[2026-10-12 18:00:27] Stored message from bob for alice
+[2026-10-12 18:00:27] Sent to client 5: OK,message stored for alice
+[2026-10-12 18:00:33] Received from client 5: STATUSREQ
+[2026-10-12 18:00:33] Sent to client 5: alice:1,bob:2
+[2026-10-12 18:00:40] Received from client 5: GETMSG,bob
+[2026-10-12 18:00:40] Delivered message to bob
+[2026-10-12 18:00:40] Sent to client 5: MSG,alice,hi bob
+[2026-10-12 18:00:41] Received from client 5: GETMSG,bob
+[2026-10-12 18:00:41] Delivered message to bob
+[2026-10-12 18:00:41] Sent to client 5: MSG,carol,hello, from carol
+[2026-10-12 18:00:43] Received from client 5: GETMSG,bob
+[2026-10-12 18:00:43] Sent to client 5: NOMSG,no messages for bob
+[2026-10-12 18:00:50] Received from client 5: GETMSG,alice
+[2026-10-12 18:00:50] Delivered message to alice
+[2026-10-12 18:00:50] Sent to client 5: MSG,bob,hey alice
+[2026-10-12 18:00:54] Received from client 5: STATUSREQ
+[2026-10-12 18:00:54] Sent to client 5: EMPTY
+[2026-10-12 18:00:59] Received from client 5: HELLO
+[2026-10-12 18:00:59] Unknown command from client 5: HELLO
+[2026-10-12 18:00:59] Sent to client 5: ERROR,unknown command
+[2026-10-12 18:01:04] Client 5 disconnected
